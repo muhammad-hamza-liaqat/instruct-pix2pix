@@ -72,3 +72,4 @@ coverage.xml
 
 models/
 chroma.sqlite3
+hugging_models/
