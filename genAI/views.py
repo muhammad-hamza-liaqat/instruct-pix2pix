@@ -6,8 +6,10 @@ from rest_framework.response import Response
 from rest_framework import status
 from PIL import Image
 
-from .serializers import ImageGenSerializer
+from .serializers import ImageGenSerializer, ImageGenSerializer2
 from .pipelines import pipe, upscaler
+from .sd_xl_pipeline import sd_xl_pipeline
+
 
 
 class ImageGenView(APIView):
@@ -50,6 +52,54 @@ class ImageGenView(APIView):
             return Response({
                 "message": "Image generated successfully",
                 "hd_mode": upscale,
+                "steps_used": steps,
+                "image_url": request.build_absolute_uri(f"{settings.MEDIA_URL}{filename}")
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+class SDXLImageGenView(APIView):
+    """
+    Generate images using Stable Diffusion XL Base.
+
+    - If `image` is provided, it will edit the image based on the prompt.
+    - If only `prompt` is provided, it will generate a brand new image from scratch.
+    """
+    def post(self, request):
+        serializer = ImageGenSerializer2(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        prompt = serializer.validated_data["prompt"]
+        image_file = serializer.validated_data.get("image")
+        steps = 20
+
+        try:
+            if image_file:
+                init_image = Image.open(image_file).convert("RGB").resize((512, 512))
+                result = sd_xl_pipeline(
+                    prompt=prompt,
+                    image=init_image,
+                    num_inference_steps=steps
+                )
+            else:
+                result = sd_xl_pipeline(
+                    prompt=prompt,
+                    num_inference_steps=steps
+                )
+
+            generated_image = result.images[0]
+
+            media_root = getattr(settings, "MEDIA_ROOT", "media")
+            os.makedirs(media_root, exist_ok=True)
+            filename = f"{uuid.uuid4().hex}.png"
+            save_path = os.path.join(media_root, filename)
+            generated_image.save(save_path)
+
+            return Response({
+                "message": "Image generated successfully",
                 "steps_used": steps,
                 "image_url": request.build_absolute_uri(f"{settings.MEDIA_URL}{filename}")
             }, status=status.HTTP_200_OK)
